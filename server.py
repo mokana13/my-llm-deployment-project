@@ -229,7 +229,7 @@ async def handle_request(request: Request):
             
             if round_num == 1:
                 # Round 1: Create new repository
-                repo_name = task.replace(" ", "-").lower()
+                repo_name = f"{task}-{nonce}".replace(" ", "-").lower()
                 full_repo_name = f"{user.login}/{repo_name}"
                 
                 # Check if repo already exists
