@@ -264,6 +264,8 @@ async def handle_request(request: Request):
                 
                 # Git operations
                 subprocess.run(["git", "init"], cwd=tmpdir, check=True, capture_output=True)
+                subprocess.run(["git", "config", "user.email", "bot@example.com"], cwd=tmpdir, check=True, capture_output=True)
+                subprocess.run(["git", "config", "user.name", "LLM Deployment Bot"], cwd=tmpdir, check=True, capture_output=True)
                 subprocess.run(["git", "add", "."], cwd=tmpdir, check=True, capture_output=True)
                 subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=tmpdir, check=True, capture_output=True)
                 subprocess.run(["git", "branch", "-M", "main"], cwd=tmpdir, check=True, capture_output=True)
@@ -346,6 +348,8 @@ async def handle_request(request: Request):
                             f.write(f"- {check}\n")
                 
                 # Git operations
+                subprocess.run(["git", "config", "user.email", "bot@example.com"], cwd=tmpdir, check=True, capture_output=True)
+                subprocess.run(["git", "config", "user.name", "LLM Deployment Bot"], cwd=tmpdir, check=True, capture_output=True)
                 subprocess.run(["git", "add", "."], cwd=tmpdir, check=True, capture_output=True)
                 subprocess.run(["git", "commit", "-m", f"Round {round_num} update"], cwd=tmpdir, check=True, capture_output=True)
                 subprocess.run(["git", "push"], cwd=tmpdir, check=True, capture_output=True)
