@@ -153,13 +153,31 @@ async def handle_request(request: Request):
                 subprocess.run(["git", "remote", "add", "origin", remote_url], cwd=tmpdir, check=True)
                 subprocess.run(["git", "push", "-u", "origin", "main"], cwd=tmpdir, check=True)
 
-                # FINAL FIX: Use repo.edit(has_pages=True) to enable GitHub Pages.
+                # FINAL FIX: Use a direct API call with `requests` to enable GitHub Pages.
+                # This is the most reliable method and avoids PyGithub version issues.
                 try:
-                    print("Enabling GitHub Pages...")
-                    repo.edit(has_pages=True)
-                    time.sleep(5)
-                except GithubException as e:
-                    print(f"Could not enable GitHub Pages via API: {e}. Manual setup might be needed.")
+                    print("Enabling GitHub Pages via direct API call...")
+                    pages_api_url = f"https://api.github.com/repos/{full_repo_name}/pages"
+                    headers = {
+                        "Authorization": f"token {GITHUB_TOKEN}",
+                        "Accept": "application/vnd.github.v3+json"
+                    }
+                    source_payload = {
+                        "source": {"branch": "main", "path": "/"}
+                    }
+                    response = requests.post(pages_api_url, headers=headers, json=source_payload)
+
+                    if response.status_code == 201: # 201 Created is success
+                        print("GitHub Pages enabled successfully.")
+                    elif response.status_code == 409: # 409 Conflict means already enabled
+                        print("GitHub Pages was already enabled.")
+                    else:
+                        print(f"Could not enable GitHub Pages. Status: {response.status_code}, Response: {response.json()}")
+                    
+                    time.sleep(5) # Give GitHub a moment to process
+
+                except Exception as e:
+                    print(f"An unexpected error occurred while enabling GitHub Pages: {e}")
                 
                 commit_sha = repo.get_branch("main").commit.sha
                 final_repo_url = repo.html_url
