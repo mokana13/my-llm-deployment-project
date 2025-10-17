@@ -1,4 +1,4 @@
-# server.py (Single-Repo Version)
+# server.py (Final Multi-Repo Version)
 import os
 import traceback
 import tempfile
@@ -30,25 +30,20 @@ except Exception as e:
 ALLOWED = {"student@example.com": os.getenv("ALLOWED_SECRET_FOR_TESTING")}
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
-# --- IMPORTANT CONFIGURATION ---
-# This MUST match the name of the GitHub repository where this code lives.
-# For example: "my-llm-deployment-project"
-REPO_NAME_CONFIG = "my-llm-deployment-project"
-
-
 # --- HELPER FUNCTIONS ---
-def generate_readme_content(task, brief, pages_url):
-    return f"""# LLM Generated Project: {task}
+# (generate_readme_content, generate_license_content, etc. remain the same)
+def generate_readme_content(task, brief, repo_url):
+    repo_name = repo_url.split("/")[-1]
+    return f"""# LLM Code Deployment Project: {task}
 
-This application was automatically generated and deployed in response to the following brief:
+This project was automatically generated and deployed in response to the following brief:
 
 > *"{brief}"*
 
-**Live Demo URL:** [{pages_url}]({pages_url})
+It is a fully automated application that receives a development brief via an API, uses an AI model to generate code, and then automatically deploys it to GitHub Pages.
 """
 
 def generate_license_content(github_user_login):
-    # Fixed: Now contains the full MIT License text.
     return f"""MIT License
 
 Copyright (c) 2025 {github_user_login}
@@ -75,10 +70,10 @@ SOFTWARE.
 def generate_code_with_llm(brief, round_num, existing_code=None):
     if not client: raise HTTPException(status_code=500, detail="AI Pipe client not configured.")
     if round_num == 1:
-        system_prompt = "You are an expert web developer. Your task is to create a single, complete HTML file based on a user's brief. The file must contain all necessary HTML, CSS, and JavaScript. Do not add any explanations or comments outside of the code. Respond ONLY with the raw HTML code."
+        system_prompt = "You are an expert web developer..."
         user_prompt = f'BRIEF: "{brief}"'
     else:
-        system_prompt = "You are an expert web developer. Your task is to update an existing HTML file based on a new brief. The user will provide the original code and the new requirements. Respond ONLY with the full, updated raw HTML code. Do not add any explanations."
+        system_prompt = "You are an expert web developer..."
         user_prompt = f'BRIEF: "{brief}"\n\nORIGINAL CODE:\n---\n{existing_code}'
     try:
         completion = client.chat.completions.create(model=MODEL_NAME, messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}])
@@ -106,83 +101,108 @@ def post_with_retry(url, payload, max_attempts=5):
 @app.post("/api-endpoint")
 async def handle_request(request: Request):
     data = await request.json()
-    try:
-        email = data.get("email")
-        secret = data.get("secret")
-        if ALLOWED.get(email) != secret:
-            raise HTTPException(status_code=403, detail="Secret mismatch")
-        
-        brief = data.get("brief")
-        task = data.get("task")
-        evaluation_url = data.get("evaluation_url")
-        nonce = data.get("nonce")
-        round_num = data.get("round", 1)
-        
-        gh = Github(GITHUB_TOKEN)
-        user = gh.get_user()
-        
-        full_repo_name = f"{user.login}/{REPO_NAME_CONFIG}"
-        repo = gh.get_repo(full_repo_name)
-
-        project_root = os.getcwd()
-        app_folder_name = f"{task}-{nonce}".replace(" ", "-").lower()
-        app_path = os.path.join(project_root, "apps", app_folder_name)
-        
-        os.makedirs(os.path.join(project_root, "apps"), exist_ok=True)
-
-        if round_num == 1:
-            if os.path.exists(app_path):
-                raise HTTPException(status_code=409, detail=f"App '{app_folder_name}' already exists.")
-            os.makedirs(app_path)
+    # Use a temporary directory that is cleaned up automatically
+    with tempfile.TemporaryDirectory() as tmpdir:
+        try:
+            email = data.get("email")
+            secret = data.get("secret")
+            if ALLOWED.get(email) != secret:
+                raise HTTPException(status_code=403, detail="Secret mismatch")
             
-            html_content = generate_code_with_llm(brief, round_num)
-            pages_url = f"https://{user.login}.github.io/{REPO_NAME_CONFIG}/apps/{app_folder_name}/"
-            readme_content = generate_readme_content(task, brief, pages_url)
-            license_content = generate_license_content(user.login)
-
-            with open(os.path.join(app_path, "index.html"), "w", encoding="utf-8") as f: f.write(html_content)
-            with open(os.path.join(app_path, "README.md"), "w", encoding="utf-8") as f: f.write(readme_content)
-            with open(os.path.join(app_path, "LICENSE"), "w", encoding="utf-8") as f: f.write(license_content)
+            brief = data.get("brief")
+            task = data.get("task")
+            evaluation_url = data.get("evaluation_url")
+            nonce = data.get("nonce")
+            round_num = data.get("round", 1)
             
-            commit_message = f"feat: Create new app '{app_folder_name}'"
-        
-        else: # Round 2
-            if not os.path.exists(app_path):
-                raise HTTPException(status_code=404, detail=f"App '{app_folder_name}' not found for update.")
+            gh = Github(GITHUB_TOKEN)
+            user = gh.get_user()
             
-            try:
-                with open(os.path.join(app_path, "index.html"), "r", encoding="utf-8") as f: existing_html = f.read()
-            except FileNotFoundError: existing_html = ""
+            if round_num == 1:
+                repo_name = f"{task}-{nonce}".replace(" ", "-").lower()
+                full_repo_name = f"{user.login}/{repo_name}"
+                
+                try:
+                    gh.get_repo(full_repo_name)
+                    raise HTTPException(status_code=409, detail=f"Repository '{full_repo_name}' already exists.")
+                except GithubException as e:
+                    if e.status != 404: raise e
+                    pass # 404 is good, we can proceed
 
-            new_html_content = generate_code_with_llm(brief, round_num, existing_code=existing_html)
-            with open(os.path.join(app_path, "index.html"), "w", encoding="utf-8") as f: f.write(new_html_content)
-            with open(os.path.join(app_path, "README.md"), "a", encoding="utf-8") as f: f.write(f"\n\n---\n\n### Round 2 Update\n\n> *\"{brief}\"*")
+                html_content = generate_code_with_llm(brief, round_num)
+                
+                repo_url_for_readme = f"https://github.com/{full_repo_name}"
+                readme_content = generate_readme_content(task, brief, repo_url_for_readme)
+                license_content = generate_license_content(user.login)
+
+                with open(os.path.join(tmpdir, "index.html"), "w", encoding="utf-8") as f: f.write(html_content)
+                with open(os.path.join(tmpdir, "README.md"), "w", encoding="utf-8") as f: f.write(readme_content)
+                with open(os.path.join(tmpdir, "LICENSE"), "w", encoding="utf-8") as f: f.write(license_content)
+                
+                print(f"Creating new repo: {full_repo_name}")
+                repo = user.create_repo(repo_name, private=False)
+                
+                subprocess.run(["git", "init"], cwd=tmpdir, check=True)
+                subprocess.run(["git", "add", "."], cwd=tmpdir, check=True)
+                subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=tmpdir, check=True)
+                subprocess.run(["git", "branch", "-M", "main"], cwd=tmpdir, check=True)
+                remote_url = f"https://{GITHUB_TOKEN}@github.com/{full_repo_name}.git"
+                subprocess.run(["git", "remote", "add", "origin", remote_url], cwd=tmpdir, check=True)
+                subprocess.run(["git", "push", "-u", "origin", "main"], cwd=tmpdir, check=True)
+
+                try:
+                    print("Enabling GitHub Pages...")
+                    repo.create_pages_site(source={"branch": "main", "path": "/"})
+                    time.sleep(5)
+                except GithubException as e:
+                    if e.status == 409: print("GitHub Pages is already enabled.")
+                    else: print(f"Could not enable GitHub Pages via API: {e}.")
+                
+                commit_sha = repo.get_branch("main").commit.sha
+                final_repo_url = repo.html_url
+                pages_url = f"https://{user.login}.github.io/{repo_name}/"
             
-            commit_message = f"feat: Update app '{app_folder_name}' for Round 2"
+            else: # Round 2
+                repo_url_from_request = data.get("repo_url")
+                if not repo_url_from_request:
+                    raise HTTPException(status_code=400, detail="repo_url is required for round 2")
+                
+                print(f"Cloning existing repo: {repo_url_from_request}")
+                remote_url = repo_url_from_request.replace("https://", f"https://{GITHUB_TOKEN}@")
+                subprocess.run(["git", "clone", remote_url, tmpdir], check=True)
+                
+                try:
+                    with open(os.path.join(tmpdir, "index.html"), "r", encoding="utf-8") as f: existing_html = f.read()
+                except FileNotFoundError: existing_html = ""
 
-        subprocess.run(["git", "config", "--global", "user.email", "action@github.com"], check=True)
-        subprocess.run(["git", "config", "--global", "user.name", "GitHub Action"], check=True)
-        subprocess.run(["git", "pull", "origin", "main"], check=True)
-        subprocess.run(["git", "add", "."], check=True)
-        subprocess.run(["git", "commit", "-m", commit_message], check=True)
-        subprocess.run(["git", "push", "origin", "main"], check=True)
-        
-        commit_sha = repo.get_branch("main").commit.sha
-        pages_url = f"https://{user.login}.github.io/{REPO_NAME_CONFIG}/apps/{app_folder_name}/"
-        final_repo_url = repo.html_url
+                new_html_content = generate_code_with_llm(brief, round_num, existing_code=existing_html)
+                
+                with open(os.path.join(tmpdir, "index.html"), "w", encoding="utf-8") as f: f.write(new_html_content)
+                with open(os.path.join(tmpdir, "README.md"), "a", encoding="utf-8") as f: f.write(f"\n\n---\n\n### Round 2 Update\n\n> *\"{brief}\"*")
 
-        payload = {
-            "email": email, "task": task, "round": round_num, "nonce": nonce,
-            "repo_url": final_repo_url, "commit_sha": commit_sha, "pages_url": pages_url
-        }
-        success = post_with_retry(evaluation_url, payload)
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to POST to evaluation URL.")
+                subprocess.run(["git", "add", "."], cwd=tmpdir, check=True)
+                subprocess.run(["git", "commit", "-m", f"Update for round {round_num}"], cwd=tmpdir, check=True)
+                subprocess.run(["git", "push"], cwd=tmpdir, check=True)
+                
+                full_repo_name = "/".join(repo_url_from_request.split("/")[-2:])
+                repo = gh.get_repo(full_repo_name)
+                commit_sha = repo.get_branch("main").commit.sha
+                final_repo_url = repo.html_url
+                repo_name_only = repo_url_from_request.split("/")[-1]
+                pages_url = f"https://{user.login}.github.io/{repo_name_only}/"
 
-        return {"message": "Success", "repo_url": final_repo_url, "pages_url": pages_url}
+            payload = {
+                "email": email, "task": task, "round": round_num, "nonce": nonce,
+                "repo_url": final_repo_url, "commit_sha": commit_sha, "pages_url": pages_url
+            }
+            success = post_with_retry(evaluation_url, payload)
+            if not success:
+                raise HTTPException(status_code=500, detail="Failed to POST to evaluation URL.")
 
-    except Exception as e:
-        traceback.print_exc()
-        if isinstance(e, HTTPException): raise e
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+            return {"message": "Success", "repo_url": final_repo_url, "pages_url": pages_url}
+
+        except Exception as e:
+            traceback.print_exc()
+            if isinstance(e, HTTPException): raise e
+            raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
