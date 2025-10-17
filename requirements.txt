@@ -4,3 +4,4 @@ python-dotenv
 PyGithub
 google-generativeai
 requests
+openai
