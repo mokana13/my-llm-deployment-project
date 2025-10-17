@@ -1,4 +1,4 @@
-# server.py (Final Multi-Repo Version)
+# server.py (Final Multi-Repo Version with all fixes)
 import os
 import traceback
 import tempfile
@@ -22,6 +22,7 @@ try:
         api_key=os.getenv("AI_PIPE_TOKEN"),
         base_url=os.getenv("AI_PIPE_URL")
     )
+    # Using the OpenRouter model name from your course docs
     MODEL_NAME = "google/gemini-2.0-flash-lite-001"
 except Exception as e:
     print(f"Error configuring AI Pipe client: {e}")
@@ -31,19 +32,20 @@ ALLOWED = {"student@example.com": os.getenv("ALLOWED_SECRET_FOR_TESTING")}
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
 # --- HELPER FUNCTIONS ---
-# (generate_readme_content, generate_license_content, etc. remain the same)
-def generate_readme_content(task, brief, repo_url):
-    repo_name = repo_url.split("/")[-1]
+
+def generate_readme_content(task, brief):
+    """Generates the content for the README.md file."""
     return f"""# LLM Code Deployment Project: {task}
 
 This project was automatically generated and deployed in response to the following brief:
 
 > *"{brief}"*
 
-It is a fully automated application that receives a development brief via an API, uses an AI model to generate code, and then automatically deploys it to GitHub Pages.
+It is a fully automated application that receives a development brief via an API, uses an AI model to generate code, and then automatically deploys it to a new GitHub repository and enables GitHub Pages.
 """
 
 def generate_license_content(github_user_login):
+    """Generates the content for the MIT LICENSE file."""
     return f"""MIT License
 
 Copyright (c) 2025 {github_user_login}
@@ -68,12 +70,13 @@ SOFTWARE.
 """
 
 def generate_code_with_llm(brief, round_num, existing_code=None):
+    """Generates or modifies code using the AI Pipe."""
     if not client: raise HTTPException(status_code=500, detail="AI Pipe client not configured.")
     if round_num == 1:
-        system_prompt = "You are an expert web developer..."
+        system_prompt = "You are an expert web developer. Your task is to create a single, complete HTML file based on a user's brief. The file must contain all necessary HTML, CSS, and JavaScript. Do not add any explanations or comments outside of the code. Respond ONLY with the raw HTML code."
         user_prompt = f'BRIEF: "{brief}"'
     else:
-        system_prompt = "You are an expert web developer..."
+        system_prompt = "You are an expert web developer. Your task is to update an existing HTML file based on a new brief. The user will provide the original code and the new requirements. Respond ONLY with the full, updated raw HTML code. Do not add any explanations."
         user_prompt = f'BRIEF: "{brief}"\n\nORIGINAL CODE:\n---\n{existing_code}'
     try:
         completion = client.chat.completions.create(model=MODEL_NAME, messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}])
@@ -84,6 +87,7 @@ def generate_code_with_llm(brief, round_num, existing_code=None):
         raise HTTPException(status_code=500, detail="Failed to generate code using AI Pipe.")
 
 def post_with_retry(url, payload, max_attempts=5):
+    """Posts data with exponential backoff retry logic."""
     delay = 1
     for _ in range(max_attempts):
         try:
@@ -131,8 +135,7 @@ async def handle_request(request: Request):
 
                 html_content = generate_code_with_llm(brief, round_num)
                 
-                repo_url_for_readme = f"https://github.com/{full_repo_name}"
-                readme_content = generate_readme_content(task, brief, repo_url_for_readme)
+                readme_content = generate_readme_content(task, brief)
                 license_content = generate_license_content(user.login)
 
                 with open(os.path.join(tmpdir, "index.html"), "w", encoding="utf-8") as f: f.write(html_content)
@@ -150,13 +153,13 @@ async def handle_request(request: Request):
                 subprocess.run(["git", "remote", "add", "origin", remote_url], cwd=tmpdir, check=True)
                 subprocess.run(["git", "push", "-u", "origin", "main"], cwd=tmpdir, check=True)
 
+                # FINAL FIX: Use repo.edit(has_pages=True) to enable GitHub Pages.
                 try:
                     print("Enabling GitHub Pages...")
-                    repo.create_pages_site(source={"branch": "main", "path": "/"})
+                    repo.edit(has_pages=True)
                     time.sleep(5)
                 except GithubException as e:
-                    if e.status == 409: print("GitHub Pages is already enabled.")
-                    else: print(f"Could not enable GitHub Pages via API: {e}.")
+                    print(f"Could not enable GitHub Pages via API: {e}. Manual setup might be needed.")
                 
                 commit_sha = repo.get_branch("main").commit.sha
                 final_repo_url = repo.html_url
